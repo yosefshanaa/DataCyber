@@ -155,6 +155,13 @@ print(combined)
 # remote/elevation attacks that models barely see in training. Any model tuned on the train
 # distribution is being asked a *different question* at test time — this is the core reason
 # random-split accuracy does not transfer.
+#
+# **Real-world meaning & did the authors address it?** Prevalence is the attack *base rate* a SOC
+# faces; with U2R at 0.04% of training rows (52 samples) the learner sees almost no examples of the
+# most damaging attack. **The reviewed tutorials do not address this**: they report a single
+# Accuracy number, use no resampling/class weights, and never inspect per-class prevalence — so the
+# imbalance silently dominates the result. There is effectively a **sampling problem** in U2R/R2L
+# (too few positives to learn a stable boundary), which §5.4 probes directly.
 
 # %% [markdown]
 # ### 2.2 Feature distributions & robust outlier analysis
@@ -165,11 +172,22 @@ print(combined)
 
 # %%
 skewed = ["src_bytes", "dst_bytes", "duration", "count", "srv_count", "dst_host_count"]
+# Distributions of a representative feature set (counts/bytes + a bounded rate).
+eda.plot_feature_distributions(
+    train, skewed + ["serror_rate", "same_srv_rate", "dst_host_same_srv_rate"])
 out_tbl = pd.DataFrame([eda.outlier_summary(train[c]) for c in skewed]).set_index("feature")
 RESULTS["outlier_summary"] = json.loads(out_tbl.to_json())
+print("Outlier counts by method (note how Z-score under-counts under extreme skew):")
 display(out_tbl.round(2))
 eda.plot_log_transform_effect(train, "src_bytes")
-print("Saved figures/log_transform.png — log1p collapses the skew that inflates Z-score outliers.")
+print("log1p collapses the skew that inflates Z-score outliers.")
+
+# %% [markdown]
+# **Finding.** The byte/count features are extremely right-skewed — `src_bytes` has skew ≈ 191 and
+# spans 0 to 1.3e9. The robust methods agree the spread is huge (IQR flags ~13,840 and MAD ~31,784
+# `src_bytes` outliers) while the classic **Z-score flags only 11** — because a handful of giant
+# values inflate the standard deviation and *mask* the very outliers it is meant to find. This is the
+# textbook case for **MAD/IQR over Z-score** and for the `log1p` transform applied in §3.
 
 # %% [markdown]
 # ### 2.3 Correlation analysis — which coefficient, and why
@@ -201,6 +219,12 @@ display(red_pairs.round(3))
 # (|ρ| ≥ 0.9). Redundancy detection (here: rank correlation; alternatives: VIF, mutual information,
 # exact-duplicate check) lets us prune or combine them — improving interpretability without losing
 # signal.
+#
+# **Statistical vs practical significance.** With n = 125,973, *every* correlation is "statistically
+# significant" (p ≈ 0), so a p-value tells us nothing useful here. We therefore select on **effect
+# size** (|ρ| ≥ 0.9) — the threshold at which redundancy is large enough to matter practically. This
+# distinction is essential in cyber data, where huge sample sizes make trivial correlations look
+# "significant".
 
 # %% [markdown]
 # ### 2.4 Crosstab / group-by — protocol × attack family
@@ -236,6 +260,35 @@ RESULTS["feature_groups"] = {k: (v if k == "dropped" else len(v)) for k, v in gr
 RESULTS["n_model_features"] = int(n_out)
 print("Feature groups:", {k: (v if k == 'dropped' else len(v)) for k, v in groups.items()})
 print("Model input dimensionality after encoding:", n_out)
+
+# %% [markdown]
+# ### 3.1 Feature selection (what we dropped, and why)
+#
+# Selection here is principled, not blind: we remove the **1 constant** feature (`num_outbound_cmds`),
+# we keep the `difficulty` metadata **out** of the model (leakage, §1.1), and we *flag* the 9 redundant
+# pairs (§2.3) as merge/drop candidates. We keep the encoded one-hot columns because tree ensembles
+# handle them well and they carry the protocol/service structure seen in the crosstab.
+
+# %%
+# Feature CREATION: domain features proposed in the report (kept separate from the baseline pipeline
+# so the controlled A/B comparison stays clean). Shown here to demonstrate the idea concretely.
+engineered = features.add_engineered_features(train)[
+    ["src_bytes", "dst_bytes", "total_bytes", "bytes_ratio", "error_rate_mean", "is_attack"]
+].head()
+print("Examples of created features (total_bytes / bytes_ratio / error_rate_mean):")
+display(engineered)
+
+# %% [markdown]
+# ### 3.2 Dimensionality reduction — PCA for visualisation
+#
+# We do **not** feed PCA to the models (121 encoded features is small, and trees are unharmed by
+# correlated inputs), but a 2-component PCA is a useful *visual* check of class separability — and it
+# previews our central finding.
+
+# %%
+eda.plot_pca_2d(train, preprocessor, "attack_category", data.CLASS_ORDER)
+print("PCA: DoS/Probe form separable structure; R2L/U2R sit on top of 'normal' "
+      "-> a visual preview of why they are so hard to detect.")
 
 # %% [markdown]
 # ## 4. Model Training — the controlled experiment
