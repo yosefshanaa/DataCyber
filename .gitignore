@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Notebook execution artifacts kept; large raw data is fetchable via data/get_data.py
+# (NSL-KDD is small ~6MB so we DO commit it for one-clone reproducibility)
+
+# Report build intermediate (PDF is the deliverable)
+report/report.html
