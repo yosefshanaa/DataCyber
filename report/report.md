@@ -202,6 +202,26 @@ of `service` to cut dimensionality; (4) entropy of destination ports per host (s
 **imbalance-robust metric suite**, and **per-class** error analysis — none of which the source
 provides.
 
+**Metrics used — definition and cyber interpretation.** (TP/TN/FP/FN = true/false positives/negatives,
+attack = positive.)
+
+| Metric | Mathematical definition | Cybersecurity interpretation |
+|---|---|---|
+| Accuracy | (TP+TN)/(TP+TN+FP+FN) | Overall correctness; **misleading** under imbalance — reported only as a foil. |
+| Precision | TP/(TP+FP) | Of raised alerts, the fraction that are real attacks; low → analyst alert fatigue. |
+| Recall (TPR) | TP/(TP+FN) | Of real attacks, the fraction caught; low → **missed intrusions** (the costly error). |
+| F1 | 2·P·R/(P+R) | Harmonic mean of precision & recall (single balance score). |
+| Fβ (β=2) | (1+β²)·P·R/(β²·P+R) | Recall-weighted F-score — encodes that a miss (FN) is worse than a false alarm (FP). |
+| Balanced Accuracy | (TPR+TNR)/2 | Mean per-class recall; treats rare attacks as equally important as normal. |
+| MCC | (TP·TN−FP·FN)/√((TP+FP)(TP+FN)(TN+FP)(TN+FN)) | Correlation over the confusion matrix in [−1,1]; **trustworthy under heavy imbalance**. |
+| ROC-AUC | area under TPR vs FPR | Threshold-free ranking quality; **over-optimistic** when positives are rare. |
+| PR-AUC (AP) | area under Precision-Recall | Honest ranking score for rare positives; baseline = prevalence. |
+
+**Metrics deliberately excluded.** Regression metrics (MAE/MSE/RMSE/R²) are **not applicable** — this
+is classification, not regression. Raw **Accuracy is demoted** from a success metric to a diagnostic
+foil because, as shown, it is dominated by the majority class. We **lead with MCC, Balanced Accuracy,
+PR-AUC and per-class recall**, which remain informative under the 0.04%–13% class prevalences here.
+
 **Multiclass results on `KDDTest+`:**
 
 | Model | Accuracy | Balanced Acc | Macro-F1 | MCC |
@@ -234,14 +254,19 @@ flow-feature level. A real fix needs different telemetry (payload/host features)
 anomaly-detection paradigm, not just a heavier class weight — a conclusion the original tutorials
 never reach.
 
-*Figures: (1) class balance train vs test; (2) log-transform effect; (3) Spearman heatmap;
-(4) PR & ROC curves on `KDDTest+`; (5) Random Forest confusion matrix.*
+*Figures: (1) class balance train vs test; (2) feature distributions; (3) log-transform effect;
+(4) Spearman heatmap; (5) PCA class separability; (6) PR & ROC curves on `KDDTest+`;
+(7) Random Forest confusion matrix.*
 
 ![Class balance: train vs test](figures/class_balance.png)
+
+![Feature distributions (log-count axis)](figures/feature_distributions.png)
 
 ![Log transform tames heavy skew](figures/log_transform.png)
 
 ![Spearman correlation — redundancy](figures/corr_heatmap.png)
+
+![PCA (2 components): DoS/Probe separate; R2L/U2R overlap normal](figures/pca_2d.png)
 
 ![Precision-Recall and ROC on KDDTest+](figures/pr_roc.png)
 
@@ -276,7 +301,45 @@ alarms — a trade a real SOC must make deliberately. The default 0.5 threshold 
 
 ---
 
-## 7. Executive Summary
+## 7. Conclusions
+
+**Key findings.**
+1. The headline "~99% accuracy" **reproduces** under the tutorials' protocol (random split of
+   `KDDTrain+`: RF 0.9990; 5-fold CV 0.9989 ± 0.0002) but **does not survive** correct evaluation on
+   the official `KDDTest+` (RF 0.7798 — a 21.9-point drop).
+2. The cause is a **train→test distribution shift** (R2L 0.79% → 12.8%, U2R 0.04% → 0.30%) combined
+   with **Accuracy on imbalanced data** — a trivial constant predictor already scores 0.569.
+3. Under honest metrics the models **miss ~95% of R2L and U2R**, the highest-impact attacks; balanced
+   accuracy (~0.49–0.56) is barely above chance.
+4. Cost-sensitive re-weighting helps only **partially and unevenly** — the failure is structural, not
+   merely an imbalance artefact.
+5. The data carries a constant feature (`num_outbound_cmds`), 9 redundant feature pairs, and a
+   leakage trap (`difficulty`).
+
+**Lessons learned.** In cybersecurity ML, the **evaluation protocol and metric choice decide the
+conclusion**. Reproducibility (getting the same number) is necessary but not sufficient — **validity**
+(measuring the right thing on the right distribution) is what matters. Accuracy without a baseline and
+without per-class recall is actively misleading on rare-attack problems.
+
+**Strengths of the proposed (original) solution.** Simple, fast, and genuinely effective for the
+*common, high-volume* attacks (DoS/Probe recall 0.6–0.84); the feature set is rich and the dataset is
+clean and well-documented; the pipeline is easy to reproduce.
+
+**Weaknesses of the proposed solution.** Evaluated on the wrong (random) split; reports only Accuracy;
+ignores class imbalance and per-class performance; blind to R2L/U2R; built on dated (1999-derived)
+traffic with no temporal validity; treats the problem as solved when it is not.
+
+**Suggestions for future improvements.** (1) Always evaluate on the distribution-matched / temporally
+held-out test set; (2) report MCC, PR-AUC, Balanced Accuracy and **per-class recall**, never Accuracy
+alone; (3) treat R2L/U2R as a rare-class / anomaly-detection problem (cost-sensitive learning,
+resampling, one-class models, or autoencoders on host/payload telemetry); (4) tune the decision
+threshold to the SOC's FP/FN economics; (5) add richer features (inter-arrival Δt, per-host port
+entropy, byte asymmetry); (6) monitor for **concept drift** in production and retrain on current
+traffic.
+
+---
+
+## 8. Executive Summary
 
 We critically reproduced the most common NSL-KDD intrusion-detection tutorial, which advertises
 **~99% accuracy**. By holding models, features, preprocessing and seeds fixed and changing **only**
@@ -286,14 +349,28 @@ under 5-fold CV), then showed the identical Random Forest **falls to 0.78 accura
 shift** (R2L prevalence 0.79% → 12.8%, U2R 0.04% → 0.30%) and is invisible to Accuracy because of
 class imbalance: a constant predictor already scores 0.569. Under honest metrics (MCC 0.62, Balanced
 Accuracy 0.49, PR-AUC) and **per-class recall**, the models detect DoS/Probe but **miss ~95% of R2L
-and U2R** — the highest-impact attacks. We also found a constant feature (`num_outbound_cmds`), nine
-redundant feature pairs, and a leakage trap (`difficulty`). **The ~99% claim is not supported** as a
-measure of real detection capability. The repository contains a fully reproducible notebook, the PDF
+and U2R** — the highest-impact attacks.
+
+**Methodology.** We treated the project as a controlled experiment: faithful reproduction of the
+tutorial protocol, then a single change of variable (the test set) with everything else held fixed.
+We performed robust EDA (heavy-tail outliers via IQR/MAD, Spearman correlation, prevalence and a
+quantified train→test shift), built a leakage-safe scikit-learn pipeline (one-hot, log1p, scaling,
+constant-feature drop), trained four models (majority baseline, Logistic Regression, Random Forest,
+Gradient Boosting) with fixed seeds and cross-validation, and evaluated with an imbalance-aware metric
+suite plus per-class error analysis and a threshold sweep. A cost-sensitive remedy helped only
+partially — evidence the rare-attack failure is structural, not a tuning issue. We also found a
+constant feature (`num_outbound_cmds`), nine redundant feature pairs, and a leakage trap
+(`difficulty`).
+
+**Bottom line.** The ~99% claim **is not supported** as a measure of real detection capability; it is
+an artefact of evaluation protocol and metric choice. We **do not recommend** adopting this approach
+unchanged: evaluate on the distribution-matched test set, report MCC/PR-AUC/per-class recall, and
+treat R2L/U2R as a rare-class problem. The repository contains a fully reproducible notebook, this PDF
 report, and all figures and metrics.
 
 ---
 
-## 8. Summing It Up
+## 9. Summing It Up
 
 - **Problem.** Detect network intrusions on NSL-KDD (binary and by attack family).
 - **Selected source.** Popular NSL-KDD ML tutorials/repositories reporting ~99% accuracy via a random

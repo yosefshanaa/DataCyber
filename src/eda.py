@@ -168,3 +168,48 @@ def plot_log_transform_effect(train: pd.DataFrame, col: str = "src_bytes",
     axes[1].set_title(f"log1p({col}) — skew={logged.skew():.1f}")
     fig.tight_layout()
     return _save(fig, name)
+
+
+def plot_feature_distributions(df: pd.DataFrame, cols: list[str],
+                               name: str = "feature_distributions.png") -> plt.Figure:
+    """Grid of histograms (log y-axis) for a representative set of features."""
+    n = len(cols)
+    ncols = 3
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(13, 3.2 * nrows))
+    for ax, col in zip(axes.ravel(), cols):
+        ax.hist(df[col].astype(float), bins=50, color="#4C72B0")
+        ax.set_title(f"{col} (skew={df[col].astype(float).skew():.1f})", fontsize=9)
+        ax.set_yscale("log")
+    for ax in axes.ravel()[n:]:
+        ax.axis("off")
+    fig.suptitle("Feature distributions (log-count axis)", y=1.01)
+    fig.tight_layout()
+    return _save(fig, name)
+
+
+def plot_pca_2d(df: pd.DataFrame, preprocessor, target: str, order: list[str],
+                sample: int = 6000, seed: int = 42,
+                name: str = "pca_2d.png") -> plt.Figure:
+    """2-D PCA of the encoded features, coloured by class.
+
+    Used to *visualise* dimensionality reduction and class separability. The
+    preprocessor must already be fitted on training data (no leakage).
+    """
+    from sklearn.decomposition import PCA
+    from .data import feature_matrix
+
+    s = df.sample(min(sample, len(df)), random_state=seed)
+    X = preprocessor.transform(feature_matrix(s))
+    coords = PCA(n_components=2, random_state=seed).fit_transform(X)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    palette = dict(zip(order, ["#4C72B0", "#C44E52", "#55A868", "#8172B3", "#CCB974"]))
+    for cls in order:
+        m = (s[target] == cls).to_numpy()
+        ax.scatter(coords[m, 0], coords[m, 1], s=8, alpha=0.5,
+                   label=f"{cls} (n={m.sum()})", color=palette.get(cls))
+    ax.set_xlabel("PC1"); ax.set_ylabel("PC2")
+    ax.set_title("PCA (2 components) of encoded features — class separability")
+    ax.legend(fontsize=8, markerscale=2)
+    fig.tight_layout()
+    return _save(fig, name)
