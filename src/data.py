@@ -72,13 +72,28 @@ CLASS_ORDER: list[str] = ["normal", "DoS", "Probe", "R2L", "U2R"]
 def map_attack_category(label: str) -> str:
     """Map a fine-grained NSL-KDD label to {normal, DoS, Probe, R2L, U2R}.
 
-    Unknown attack names default to ``R2L``/``U2R`` are *not* guessed: anything
-    unmapped is returned verbatim so the caller can detect schema drift. In
-    practice every label in KDDTrain+/KDDTest+ is covered by the mapping above.
+    Attack names are never guessed: anything outside the taxonomy above maps to
+    the sentinel ``"UNKNOWN"`` so the caller can detect schema drift (see
+    :func:`check_label_coverage`). In practice every label in KDDTrain+/KDDTest+
+    is covered, which the loader asserts.
     """
     if label == "normal":
         return "normal"
     return _ATTACK_TO_CATEGORY.get(label, "UNKNOWN")
+
+
+def check_label_coverage(df: pd.DataFrame) -> None:
+    """Raise if any row's attack label fell through to ``"UNKNOWN"``.
+
+    Turns a silent labelling gap (which would distort per-class metrics) into a
+    loud, explicit failure — the integrity guard the docstring of
+    :func:`map_attack_category` promises.
+    """
+    unknown = sorted(df.loc[df["attack_category"] == "UNKNOWN", "label"].unique())
+    if unknown:
+        raise ValueError(
+            f"Unmapped NSL-KDD attack labels (schema drift): {unknown}. "
+            "Extend _ATTACK_TO_CATEGORY in src/data.py.")
 
 
 def load_nsl_kdd(path: str | Path) -> pd.DataFrame:
@@ -91,6 +106,7 @@ def load_nsl_kdd(path: str | Path) -> pd.DataFrame:
     """
     df = pd.read_csv(path, header=None, names=ALL_COLUMNS)
     df["attack_category"] = df["label"].map(map_attack_category)
+    check_label_coverage(df)  # fail loudly on any unmapped attack name
     df["is_attack"] = (df["label"] != "normal").astype(int)
     df["binary_label"] = df["is_attack"].map({0: "normal", 1: "attack"})
     return df
@@ -104,6 +120,11 @@ def load_train_test(raw_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train, test
 
 
-def feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    """Return just the 41 model input features (drop labels/difficulty/targets)."""
-    return df[FEATURE_COLUMNS].copy()
+def feature_matrix(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFrame:
+    """Return the model-input columns (default: the 41 canonical features).
+
+    ``cols`` lets callers request a custom feature set — e.g. the redundancy
+    ablation (a subset) or the engineered-feature experiment (a superset) — while
+    keeping label/difficulty/target columns out by construction.
+    """
+    return df[FEATURE_COLUMNS if cols is None else cols].copy()

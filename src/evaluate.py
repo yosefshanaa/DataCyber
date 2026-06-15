@@ -58,6 +58,44 @@ def per_class_recall(y_true, y_pred, labels: list[str]) -> pd.Series:
     return pd.Series(rec, index=labels, name="recall")
 
 
+def per_class_detection_rate(y_true_multi, y_pred_binary, labels: list[str]
+                             ) -> pd.Series:
+    """Fraction of each true class flagged as *attack* (predicted positive).
+
+    For attack families this is recall; for ``normal`` it is the false-positive
+    rate. Lets us score one-class anomaly detectors (which only output
+    attack/normal) on the same per-family axis as the supervised models.
+    """
+    y_true_multi = np.asarray(y_true_multi)
+    y_pred_binary = np.asarray(y_pred_binary)
+    rates = {}
+    for cls in labels:
+        mask = y_true_multi == cls
+        rates[cls] = float(y_pred_binary[mask].mean()) if mask.any() else float("nan")
+    return pd.Series(rates, name="detection_rate")
+
+
+def plot_detection_comparison(table: pd.DataFrame, title: str, name: str
+                              ) -> plt.Figure:
+    """Grouped bar chart of per-class detection rate across models/paradigms."""
+    classes = list(table.index)
+    methods = list(table.columns)
+    x = np.arange(len(classes))
+    width = 0.8 / max(len(methods), 1)
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    for i, m in enumerate(methods):
+        ax.bar(x + i * width, table[m].to_numpy(), width, label=m)
+    ax.set_xticks(x + width * (len(methods) - 1) / 2, classes)
+    ax.set_ylabel("Detection rate (recall; FPR for 'normal')")
+    ax.set_ylim(0, 1)
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    FIG_DIR.mkdir(exist_ok=True)
+    fig.savefig(FIG_DIR / name, dpi=130, bbox_inches="tight")
+    return fig
+
+
 def class_report_df(y_true, y_pred, labels: list[str]) -> pd.DataFrame:
     rep = classification_report(y_true, y_pred, labels=labels, output_dict=True,
                                 zero_division=0)

@@ -17,8 +17,13 @@ imbalance-robust metrics the picture is worse: a trivial majority predictor alre
 accuracy, and the models **miss 95% of R2L and U2R attacks** — precisely the credential-theft and
 privilege-escalation intrusions that matter most. We trace the collapse to a deliberate
 **train→test distribution shift** (R2L prevalence rises 0.79% → 12.8%) and to the use of **Accuracy
-on imbalanced data**. **Verdict: the ~99% claim is computed correctly but is not a valid measure of
-intrusion-detection capability.**
+on imbalanced data**, and confirm the gap is **21.9 ± 0.0 pp across five random seeds** (not a lucky
+split). Crucially, we **test the implied fix** rather than merely asserting it: a one-class anomaly
+detector trained on *normal traffic only* — a paradigm the tutorials never try — recovers the rare
+attacks (R2L 0.05→0.47, U2R 0.15→0.78) and **outperforms every supervised model on the official test
+set** (MCC 0.72 vs 0.66; F2 0.84 vs 0.72), at the cost of a higher false-alarm rate. **Verdict: the
+~99% claim is computed correctly but is not a valid measure of intrusion-detection capability — and a
+better paradigm exists for the attacks that matter.**
 
 ---
 
@@ -49,11 +54,13 @@ features (3 nominal: `protocol_type`, `service`, `flag`; 6 binary flags; 32 nume
 plus a fine-grained attack `label` and an NSL-KDD `difficulty` score. Attacks group into four
 families: **DoS, Probe, R2L** (remote-to-local) and **U2R** (user-to-root).
 
-**The model/methodology employed by us.** Faithful reproduction + a **controlled A/B protocol
-experiment**, robust EDA, leakage-safe feature engineering (scikit-learn `Pipeline`/
-`ColumnTransformer`), four models (majority **baseline**, Logistic Regression, Random Forest,
-Gradient Boosting), an imbalance-aware metric suite, and error analysis. Everything is reproducible
-(`RANDOM_STATE = 42`).
+**The model/methodology employed by us.** Faithful reproduction (including a **literal
+reconstruction of the tutorials' own preprocessing**, leak and all) + a **controlled A/B protocol
+experiment** with **multi-seed error bars**, robust EDA, leakage-safe feature engineering
+(scikit-learn `Pipeline`/`ColumnTransformer`), four supervised models (majority **baseline**,
+Logistic Regression, Random Forest, Gradient Boosting) **plus two semi-supervised anomaly detectors**
+(Isolation Forest, One-Class SVM) that test our own recommendation, feature-engineering ablations, an
+imbalance-aware metric suite, and error analysis. Everything is reproducible (`RANDOM_STATE = 42`).
 
 ---
 
@@ -101,6 +108,20 @@ a lucky split.
 dataset designers actually intended for testing. The high precision (0.97) with mediocre recall
 (0.63) shows the model is conservative: when it flags an attack it is usually right, but it lets a
 **third of all attacks through**.
+
+**The gap is not a lucky split.** Two independent robustness checks confirm it: (i) 5-fold stratified
+CV *within* `KDDTrain+` also returns **0.9989 ± 0.0002**, and (ii) repeating Protocol A across **five
+random seeds** gives Protocol-A accuracy **0.9989 ± 0.0001** against the fixed Protocol-B 0.7798, so
+the A→B drop is **21.91 ± 0.01 pp** — essentially seed-invariant. The collapse is a property of the
+*distribution shift*, not of any one split.
+
+**It is also not an artefact of our pipeline.** To rule out the possibility that *our* leakage-safe
+preprocessing manufactured the effect, we reconstructed the tutorials' **own** recipe — `LabelEncoder`
+(ordinal)-coded nominal columns, raw unscaled values, and the leaky `difficulty` column **kept in** —
+and ran the same Random Forest. It reproduces **0.9996** on a random split and still **collapses to
+0.8224 on `KDDTest+`** (−17.7 pp). (Note the leak makes both numbers look *better*, which only
+deepens the over-optimism.) The inflation is therefore intrinsic to *evaluating in-distribution*, by
+either pipeline. See §4 for the matching audit of the original repository.
 
 ### 2.3 Is the evaluation methodology appropriate? (No — three failures)
 
@@ -157,6 +178,27 @@ features, or compress with PCA. As the course notes, redundancy *splits
 feature importance across collinear columns and harms explainability* — a real concern for an IDS
 that analysts must trust.
 
+**Why Spearman and not Pearson — demonstrated, not asserted.** We computed both coefficients on every
+numeric pair. They disagree most on exactly the heavy-tailed count features, and the decisive example
+is `num_compromised ↔ num_root`: **Pearson = 0.999** but **Spearman = 0.165** (the largest gap, 0.83).
+A Pearson-driven redundancy filter would *delete one of these as "redundant" and destroy real signal*,
+because a handful of rows with simultaneously huge values dominate the linear fit, whereas the ranks
+reveal the two features are barely monotonically related. Conversely `same_srv_rate ↔ diff_srv_rate`
+is weak under Pearson (−0.38) but strong under Spearman (−0.92). This is the concrete, data-driven
+justification for using the rank-based measure on this telemetry.
+
+**We acted on the redundancy, not just flagged it (ablation).** Dropping one feature from each
+|ρ| ≥ 0.9 pair (6 columns) and re-evaluating the same Random Forest on `KDDTest+` leaves performance
+essentially unchanged while shrinking the model input from 121 to 115 dimensions — confirming the
+dropped columns carried no *unique* signal. Adding the three domain features below gives a small but
+**real, tested** gain (not an assumed one):
+
+| RF on `KDDTest+` | Model inputs | Accuracy | MCC | Recall (attack) | F2 |
+|---|---|---|---|---|---|
+| Full (41 features) | 121 | 0.7798 | 0.6214 | 0.6335 | 0.6806 |
+| Pruned (−6 redundant) | 115 | 0.7731 | 0.6120 | 0.6212 | 0.6693 |
+| **+ Engineered (3 created)** | 124 | **0.7863** | **0.6310** | **0.6450** | **0.6912** |
+
 **A leakage trap we caught.** The `difficulty` column is **metadata** (how many of 21 baseline
 learners classified the row correctly), not a runtime feature, and it differs by class (mean 20.32
 for normal vs 18.57 for attack). Including it — as some tutorials do — is **target leakage**. We
@@ -182,11 +224,19 @@ of `service` to cut dimensionality; (4) entropy of destination ports per host (s
   (`requirements.txt`, `RANDOM_STATE=42`, `Restart & Run All`). The original tutorials are typically
   runnable but **pinned to old library versions** and frequently depend on a pre-cleaned CSV rather
   than the raw NSL-KDD files.
+- **We audited the actual source repository** (`abhinav-bhardwaj/...`), not just the pattern. Its
+  notebooks confirm, in code: a random `train_test_split`, `LabelEncoder` on the nominal columns, the
+  `difficulty`/`level` column **retained as a feature**, and reported accuracies of **KNN ≈ 98.5%** and
+  a **neural net ≈ 97.8%**. Decisively, the repository **never loads `KDDTest+` as a held-out
+  distribution** — every headline number is computed on an in-distribution random split. This is the
+  direct, repository-level confirmation of our central critique. Our literal reconstruction of that
+  recipe (§2.2) reproduces 0.9996 on a random split and collapses to 0.8224 on `KDDTest+`.
 - **Are files/dependencies available?** The dataset is public; we fetch it deterministically
   (`data/get_data.py`). Several source repos commit a derived CSV with **undocumented preprocessing**
   (re-encoded categoricals, dropped columns) — a hidden step that obscures what was actually done.
 - **Hidden preprocessing.** The most consequential "hidden" choice is *implicit*: using a random split
   instead of `KDDTest+`. It is rarely stated as a limitation, yet it determines the headline result.
+  A second, subtler one is keeping `difficulty` — a leak that further inflates the score.
 - **Overall reproducibility verdict.** The *numbers* are reproducible; the *claim* is not robust. A
   result that reproduces but does not generalise is a reproducibility success and a **validity
   failure** — exactly the distinction this project is meant to surface.
@@ -196,11 +246,15 @@ of `service` to cut dimensionality; (4) entropy of destination ports per host (s
 ## 5. Experimental Results
 
 **Experiments performed.** (a) Reproduce Protocol A; (b) 5-fold CV; (c) evaluate Protocol B on
-`KDDTest+`; (d) multiclass (5-class) evaluation; (e) per-class recall; (f) threshold sweep.
+`KDDTest+`; (d) multiclass (5-class) evaluation; (e) per-class recall; (f) threshold sweep;
+(g) **literal tutorial-recipe reproduction**; (h) **multi-seed A→B stability**; (i) **feature-redundancy
+and engineered-feature ablations** (§3); (j) **anomaly-detection paradigm** (Isolation Forest,
+One-Class SVM).
 
-**Modifications we introduced.** A trivial **baseline**, the **A/B protocol** control, the
-**imbalance-robust metric suite**, and **per-class** error analysis — none of which the source
-provides.
+**Modifications we introduced.** A trivial **baseline**, the **A/B protocol** control with **error
+bars**, the **imbalance-robust metric suite**, **per-class** error analysis, **feature ablations**,
+and — most importantly — a **semi-supervised anomaly-detection paradigm** that tests our own
+recommendation. None of these appear in the source.
 
 **Metrics used — definition and cyber interpretation.** (TP/TN/FP/FN = true/false positives/negatives,
 attack = positive.)
@@ -241,8 +295,13 @@ PR-AUC and per-class recall**, which remain informative under the 0.04%–13% cl
 | **R2L** | 0.025 | **0.050** | 0.098 |
 | **U2R** | 0.119 | **0.045** | 0.239 |
 
-Balanced Accuracy (~0.49–0.56) sits barely above the 0.20 chance level for 5 classes — a fact the
-0.78 Accuracy completely hides.
+Balanced Accuracy (~0.49–0.56) is far below the 0.78 Accuracy — it is dragged down by the near-zero
+R2L/U2R recall that Accuracy hides. (It is still ~2.5× the 0.20 five-class chance floor, because
+`normal`/DoS/Probe are detected well; the failure is concentrated, not uniform.)
+
+> **Sample-size caveat.** U2R has only **67** test rows, so its recall estimates (e.g. 0.045 ≈ 3/67)
+> carry a wide confidence interval (95% CI ≈ ±5 pp by the normal approximation) and should be read as
+> "almost entirely missed", not as precise point values. R2L (2,885 rows) is statistically solid.
 
 **Remediation attempt (cost-sensitive learning).** Because the failure is concentrated in the rare
 classes, we retrained with `class_weight='balanced'`. The effect is **uneven and only partial**:
@@ -254,9 +313,44 @@ flow-feature level. A real fix needs different telemetry (payload/host features)
 anomaly-detection paradigm, not just a heavier class weight — a conclusion the original tutorials
 never reach.
 
+**Testing our own recommendation: anomaly detection for the rare attacks.** It would be hypocritical
+to recommend an anomaly-detection paradigm without testing it — the very omission we fault in the
+tutorials. So we trained two **semi-supervised one-class detectors on `normal` traffic only**
+(Isolation Forest; One-Class SVM, RBF) and scored them on `KDDTest+`, flagging deviations as attacks.
+
+| Model (`KDDTest+`) | Supervision | Recall | Precision | F2 | MCC | ROC-AUC |
+|---|---|---|---|---|---|---|
+| Random Forest | supervised | 0.6335 | 0.9689 | 0.6806 | 0.6214 | 0.9614 |
+| Gradient Boosting | supervised | 0.6757 | 0.9693 | 0.7193 | 0.6552 | 0.9610 |
+| Isolation Forest | normal-only | 0.6644 | 0.9696 | 0.7090 | 0.6466 | 0.9489 |
+| **One-Class SVM** | **normal-only** | **0.8254** | 0.9182 | **0.8424** | **0.7214** | 0.8832 |
+
+Per-family **detection rate** (fraction flagged as *attack*; the `normal` row is the false-positive rate):
+
+| Class | Supervised RF | Isolation Forest | One-Class SVM |
+|---|---|---|---|
+| normal (FPR) | 0.027 | 0.027 | 0.097 |
+| DoS | 0.827 | 0.785 | 0.927 |
+| Probe | 0.765 | 0.978 | 0.934 |
+| **R2L** | 0.051 | 0.096 | **0.473** |
+| **U2R** | 0.149 | 0.343 | **0.776** |
+
+**This is the most important positive result in the project.** A One-Class SVM that *never sees a
+single attack label* **outperforms every supervised model on the official test set** (MCC 0.72 vs the
+best supervised 0.66; F2 0.84 vs 0.72) and, crucially, **recovers the rare attacks the supervised
+models miss**: R2L detection rises 0.05 → 0.47 and U2R 0.15 → 0.78. The mechanism is exactly our
+thesis — by modelling *only* what normal looks like, the detector is **immune to the train→test attack
+shift** that sinks the supervised classifiers. The cost is a higher false-alarm rate (normal FPR
+0.03 → 0.10), i.e. the classic IDS precision/recall trade — but for a recall-critical task that is
+often the right operating point, and it is a trade a SOC can tune. **Anomaly detection is therefore
+not a free fix, but it is a demonstrably better paradigm for the highest-impact intrusions** — an
+evidence-backed conclusion, not the assertion the tutorials leave at "future work".
+
+![Per-class detection rate: supervised vs one-class anomaly detection](figures/anomaly_detection.png)
+
 *Figures: (1) class balance train vs test; (2) feature distributions; (3) log-transform effect;
 (4) Spearman heatmap; (5) PCA class separability; (6) PR & ROC curves on `KDDTest+`;
-(7) Random Forest confusion matrix.*
+(7) Random Forest confusion matrix; (8) per-class detection rate, supervised vs anomaly detection.*
 
 ![Class balance: train vs test](figures/class_balance.png)
 
@@ -299,6 +393,13 @@ Lowering the threshold from 0.5 to 0.1 recovers ~2,800 missed attacks at the cos
 alarms — a trade a real SOC must make deliberately. The default 0.5 threshold the tutorials use is
 **not** the right operating point for a recall-critical task.
 
+But threshold tuning only slides along the supervised model's *mediocre* R2L/U2R curve. The larger
+lever is the **paradigm** (§5): the One-Class SVM recovers **47% of R2L and 78% of U2R** that *no*
+threshold on the supervised score can reach — because those attacks never cross the supervised
+decision boundary at all. The deepest error pattern, then, is not a threshold mis-set but a
+**model-class mismatch**: in-distribution supervised classification is the wrong tool for novel,
+content-based intrusions.
+
 ---
 
 ## 7. Conclusions
@@ -310,11 +411,18 @@ alarms — a trade a real SOC must make deliberately. The default 0.5 threshold 
 2. The cause is a **train→test distribution shift** (R2L 0.79% → 12.8%, U2R 0.04% → 0.30%) combined
    with **Accuracy on imbalanced data** — a trivial constant predictor already scores 0.569.
 3. Under honest metrics the models **miss ~95% of R2L and U2R**, the highest-impact attacks; balanced
-   accuracy (~0.49–0.56) is barely above chance.
+   accuracy (~0.49–0.56) sits far below the headline Accuracy because it refuses to let the
+   well-detected `normal`/DoS/Probe classes paper over that collapse.
 4. Cost-sensitive re-weighting helps only **partially and unevenly** — the failure is structural, not
    merely an imbalance artefact.
 5. The data carries a constant feature (`num_outbound_cmds`), 9 redundant feature pairs, and a
-   leakage trap (`difficulty`).
+   leakage trap (`difficulty`); pruning the redundancy costs nothing and three engineered features
+   give a small, *tested* gain.
+6. **The implied remedy works, and we proved it.** A one-class anomaly detector trained on normal
+   traffic only **beats every supervised model on the official test set** (MCC 0.72 vs 0.66; F2 0.84
+   vs 0.72) and recovers the rare attacks (R2L 0.05 → 0.47, U2R 0.15 → 0.78) — because it is immune
+   to the train→test attack shift. The cost is more false alarms; the *paradigm*, not a larger
+   supervised model, is the lever that matters.
 
 **Lessons learned.** In cybersecurity ML, the **evaluation protocol and metric choice decide the
 conclusion**. Reproducibility (getting the same number) is necessary but not sufficient — **validity**
@@ -331,9 +439,10 @@ traffic with no temporal validity; treats the problem as solved when it is not.
 
 **Suggestions for future improvements.** (1) Always evaluate on the distribution-matched / temporally
 held-out test set; (2) report MCC, PR-AUC, Balanced Accuracy and **per-class recall**, never Accuracy
-alone; (3) treat R2L/U2R as a rare-class / anomaly-detection problem (cost-sensitive learning,
-resampling, one-class models, or autoencoders on host/payload telemetry); (4) tune the decision
-threshold to the SOC's FP/FN economics; (5) add richer features (inter-arrival Δt, per-host port
+alone; (3) **treat R2L/U2R as anomaly detection** — we showed a one-class SVM on normal-only traffic
+substantially outperforms the supervised models on the rare attacks (R2L 0.47, U2R 0.78 detection);
+pair it with cost-sensitive learning or host/payload telemetry to control its false-alarm rate;
+(4) tune the decision threshold to the SOC's FP/FN economics; (5) add richer features (inter-arrival Δt, per-host port
 entropy, byte asymmetry); (6) monitor for **concept drift** in production and retrain on current
 traffic.
 
@@ -357,16 +466,19 @@ We performed robust EDA (heavy-tail outliers via IQR/MAD, Spearman correlation, 
 quantified train→test shift), built a leakage-safe scikit-learn pipeline (one-hot, log1p, scaling,
 constant-feature drop), trained four models (majority baseline, Logistic Regression, Random Forest,
 Gradient Boosting) with fixed seeds and cross-validation, and evaluated with an imbalance-aware metric
-suite plus per-class error analysis and a threshold sweep. A cost-sensitive remedy helped only
-partially — evidence the rare-attack failure is structural, not a tuning issue. We also found a
-constant feature (`num_outbound_cmds`), nine redundant feature pairs, and a leakage trap
-(`difficulty`).
+suite plus per-class error analysis and a threshold sweep. We confirmed the gap is seed-invariant
+(five seeds), reproduced it with the tutorials' **own** leaky recipe (0.9996 → 0.8224), and probed two
+remedies: cost-sensitive re-weighting (helped only partially) and — decisively — a **semi-supervised
+anomaly-detection paradigm**. We also found a constant feature (`num_outbound_cmds`), nine redundant
+feature pairs (pruning them is free), and a leakage trap (`difficulty`).
 
 **Bottom line.** The ~99% claim **is not supported** as a measure of real detection capability; it is
 an artefact of evaluation protocol and metric choice. We **do not recommend** adopting this approach
 unchanged: evaluate on the distribution-matched test set, report MCC/PR-AUC/per-class recall, and
-treat R2L/U2R as a rare-class problem. The repository contains a fully reproducible notebook, this PDF
-report, and all figures and metrics.
+treat R2L/U2R as an **anomaly-detection** problem — which we did not merely recommend but **tested**: a
+one-class SVM trained on normal-only traffic beats the supervised models on the official test set
+(MCC 0.72 vs 0.66) and recovers the rare attacks (R2L 0.47, U2R 0.78), at a higher false-alarm rate.
+The repository contains a fully reproducible notebook, this PDF report, and all figures and metrics.
 
 ---
 
@@ -377,11 +489,16 @@ report, and all figures and metrics.
   split of `KDDTrain+` (abhinav-bhardwaj; Mamcose), with the foundational dataset paper by Tavallaee
   et al. (2009).
 - **Dataset.** NSL-KDD — `KDDTrain+` (125,973), `KDDTest+` (22,544), 41 features, 4 attack families.
-- **Methodology.** Faithful reproduction + controlled A/B protocol experiment; robust EDA; leakage-safe
-  feature engineering; four models; imbalance-aware metrics; error analysis. Fixed seeds; CV.
+- **Methodology.** Faithful reproduction (incl. a literal reconstruction of the tutorials' leaky
+  recipe) + a controlled, multi-seed A/B protocol experiment; robust EDA; leakage-safe feature
+  engineering with ablations; four supervised models **plus two anomaly detectors**; imbalance-aware
+  metrics; error analysis. Fixed seeds; CV.
 - **Main findings of the reproduction study.** The headline accuracy reproduces under the source's
-  protocol but **does not survive correct evaluation** (~0.99 → 0.78), and the models fail precisely
-  on the rare, dangerous attacks (R2L/U2R recall ≈ 0.05).
+  protocol (and under the tutorials' own pipeline) but **does not survive correct evaluation**
+  (~0.99 → 0.78; gap 21.9 ± 0.0 pp over five seeds), and the supervised models fail precisely on the
+  rare, dangerous attacks (R2L/U2R recall ≈ 0.05). **A one-class anomaly detector trained on normal
+  traffic only reverses this** — beating the supervised models on the official test set (MCC 0.72 vs
+  0.66) and detecting 47%/78% of R2L/U2R — at a higher false-alarm rate.
 - **Were the author's claims supported by our results?** **No.** The number is arithmetically correct
   but the *protocol* and *metric choice* make the claim misleading.
 - **Most important insight.** In cybersecurity, **the evaluation protocol and the choice of metric
@@ -390,9 +507,10 @@ report, and all figures and metrics.
   evaluation, not a high score.
 - **Do we recommend using this project/approach on similar problems?** **Not as-is.** Recommended
   practice: evaluate on a distribution-matched / temporally-held-out test set; report
-  MCC/PR-AUC/per-class recall instead of Accuracy; treat R2L/U2R as a rare-class problem
-  (cost-sensitive learning, resampling, or dedicated anomaly detection); and tune the decision
-  threshold to the FP/FN economics of the SOC.
+  MCC/PR-AUC/per-class recall instead of Accuracy; **use an anomaly-detection paradigm for the
+  novel/content-based attacks** (we demonstrated a one-class SVM that outperforms supervised models on
+  R2L/U2R), tuned via cost-sensitive learning and the decision threshold to the FP/FN economics of the
+  SOC.
 - **Final conclusion.** A rigorous, reproducible **refutation** of an over-optimistic but extremely
   common cybersecurity-ML claim — demonstrating that methodological rigor, not headline accuracy, is
   what makes a model trustworthy in cyber defence.
