@@ -141,6 +141,33 @@ def high_correlation_pairs(corr: pd.DataFrame, threshold: float = 0.9
     return pairs.sort_values("corr", key=lambda s: s.abs(), ascending=False)
 
 
+def compare_correlation_methods(df: pd.DataFrame, cols: list[str],
+                                threshold: float = 0.9) -> pd.DataFrame:
+    """Contrast Pearson vs Spearman on the same features.
+
+    Returns, per pair that is highly correlated under *either* method, both
+    coefficients and their gap — demonstrating empirically how the heavy tails
+    inflate/deflate Pearson relative to the rank-based Spearman (the reason we
+    select Spearman for redundancy detection).
+    """
+    pear = df[cols].corr(method="pearson")
+    spear = df[cols].corr(method="spearman")
+    mask = np.triu(np.ones(pear.shape, dtype=bool), k=1)
+    rows = []
+    for i, a in enumerate(cols):
+        for j, b in enumerate(cols):
+            if not mask[i, j]:
+                continue
+            p, s = pear.iloc[i, j], spear.iloc[i, j]
+            if abs(p) >= threshold or abs(s) >= threshold:
+                rows.append({"feat_a": a, "feat_b": b,
+                             "pearson": round(float(p), 3),
+                             "spearman": round(float(s), 3),
+                             "abs_gap": round(abs(float(p) - float(s)), 3)})
+    out = pd.DataFrame(rows)
+    return out.sort_values("abs_gap", ascending=False).reset_index(drop=True)
+
+
 def plot_correlation_heatmap(corr: pd.DataFrame, name: str = "corr_heatmap.png"
                              ) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(13, 11))

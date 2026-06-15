@@ -164,6 +164,113 @@
       "corr": 0.919
     }
   ],
+  "pearson_vs_spearman": [
+    {
+      "feat_a": "num_compromised",
+      "feat_b": "num_root",
+      "pearson": 0.999,
+      "spearman": 0.165,
+      "abs_gap": 0.834
+    },
+    {
+      "feat_a": "same_srv_rate",
+      "feat_b": "diff_srv_rate",
+      "pearson": -0.377,
+      "spearman": -0.92,
+      "abs_gap": 0.544
+    },
+    {
+      "feat_a": "rerror_rate",
+      "feat_b": "dst_host_rerror_rate",
+      "pearson": 0.927,
+      "spearman": 0.839,
+      "abs_gap": 0.088
+    },
+    {
+      "feat_a": "srv_rerror_rate",
+      "feat_b": "dst_host_rerror_rate",
+      "pearson": 0.918,
+      "spearman": 0.831,
+      "abs_gap": 0.087
+    },
+    {
+      "feat_a": "rerror_rate",
+      "feat_b": "dst_host_srv_rerror_rate",
+      "pearson": 0.964,
+      "spearman": 0.884,
+      "abs_gap": 0.08
+    },
+    {
+      "feat_a": "srv_rerror_rate",
+      "feat_b": "dst_host_srv_rerror_rate",
+      "pearson": 0.97,
+      "spearman": 0.894,
+      "abs_gap": 0.076
+    },
+    {
+      "feat_a": "dst_host_serror_rate",
+      "feat_b": "dst_host_srv_serror_rate",
+      "pearson": 0.985,
+      "spearman": 0.919,
+      "abs_gap": 0.066
+    },
+    {
+      "feat_a": "serror_rate",
+      "feat_b": "dst_host_srv_serror_rate",
+      "pearson": 0.981,
+      "spearman": 0.922,
+      "abs_gap": 0.059
+    },
+    {
+      "feat_a": "srv_serror_rate",
+      "feat_b": "dst_host_serror_rate",
+      "pearson": 0.978,
+      "spearman": 0.919,
+      "abs_gap": 0.059
+    },
+    {
+      "feat_a": "dst_host_rerror_rate",
+      "feat_b": "dst_host_srv_rerror_rate",
+      "pearson": 0.925,
+      "spearman": 0.88,
+      "abs_gap": 0.044
+    },
+    {
+      "feat_a": "srv_serror_rate",
+      "feat_b": "dst_host_srv_serror_rate",
+      "pearson": 0.986,
+      "spearman": 0.942,
+      "abs_gap": 0.044
+    },
+    {
+      "feat_a": "serror_rate",
+      "feat_b": "dst_host_serror_rate",
+      "pearson": 0.979,
+      "spearman": 0.936,
+      "abs_gap": 0.043
+    },
+    {
+      "feat_a": "rerror_rate",
+      "feat_b": "srv_rerror_rate",
+      "pearson": 0.989,
+      "spearman": 0.966,
+      "abs_gap": 0.023
+    },
+    {
+      "feat_a": "dst_host_srv_count",
+      "feat_b": "dst_host_same_srv_rate",
+      "pearson": 0.897,
+      "spearman": 0.919,
+      "abs_gap": 0.023
+    },
+    {
+      "feat_a": "serror_rate",
+      "feat_b": "srv_serror_rate",
+      "pearson": 0.993,
+      "spearman": 0.973,
+      "abs_gap": 0.02
+    }
+  ],
   "crosstab_protocol": {
     "DoS": {
       "icmp": 2847,
@@ -278,7 +385,7 @@
       "f2": 0.680642298611925,
       "mcc": 0.6214417826268744,
       "roc_auc": 0.9614165962994613,
-      "pr_auc": 0.9640138325914942
+      "pr_auc": 0.9640138325911815
     },
     "Gradient Boosting": {
       "accuracy": 0.8031848828956707,
@@ -294,6 +401,25 @@
   },
   "rf_cv_accuracy_mean": 0.99894421732287,
   "rf_cv_accuracy_std": 0.00015393297267798437,
+  "tutorial_repro": {
+    "random_split_accuracy": 0.9996,
+    "official_test_accuracy": 0.8224,
+    "drop_pp": 17.7
+  },
+  "multiseed_gap": {
+    "seeds": [
+      0,
+      1,
+      7,
+      21,
+      42
+    ],
+    "protocolA_acc_mean": 0.9989,
+    "protocolA_acc_std": 0.0001,
+    "protocolB_acc": 0.7798,
+    "gap_mean_pp": 21.91,
+    "gap_std_pp": 0.01
+  },
   "rf_accuracy_gap_A_minus_B": 0.21919999999999995,
   "majority_baseline_accuracy_test": 0.5692423704755145,
   "multiclass_protocolB": {
@@ -384,6 +510,99 @@
       "Probe": 0.737,
       "R2L": 0.277,
       "U2R": 0.209
+    }
+  },
+  "feature_ablation": {
+    "Full (41 features)": {
+      "accuracy": 0.7798083747338538,
+      "balanced_accuracy": 0.8033231054639528,
+      "precision": 0.9688952449052556,
+      "recall": 0.6335229486480168,
+      "f1": 0.7661138333961552,
+      "f2": 0.680642298611925,
+      "mcc": 0.6214417826268744,
+      "roc_auc": 0.9614165962994613,
+      "pr_auc": 0.9640138325914942,
+      "n_model_features": 121
+    },
+    "Pruned (\u22126 redundant)": {
+      "accuracy": 0.7730660042583393,
+      "balanced_accuracy": 0.797476029431671,
+      "precision": 0.9690044973866537,
+      "recall": 0.6212109405439102,
+      "f1": 0.7570750237416904,
+      "f2": 0.6692523380177638,
+      "mcc": 0.6119716235048929,
+      "roc_auc": 0.9581091189871828,
+      "pr_auc": 0.9600714401351742,
+      "n_model_features": 115
+    },
+    "+ Engineered (3 created)": {
+      "accuracy": 0.7863289567068843,
+      "balanced_accuracy": 0.8090505269554201,
+      "precision": 0.9694307800421644,
+      "recall": 0.6449777916309515,
+      "f1": 0.7746010949417435,
+      "f2": 0.6912477033572741,
+      "mcc": 0.6309870150097018,
+      "roc_auc": 0.963102412146152,
+      "pr_auc": 0.9646098925494341,
+      "n_model_features": 124
+    }
+  },
+  "redundant_drop_set": [
+    "diff_srv_rate",
+    "dst_host_same_srv_rate",
+    "dst_host_serror_rate",
+    "dst_host_srv_serror_rate",
+    "srv_rerror_rate",
+    "srv_serror_rate"
+  ],
+  "anomaly_binary_metrics": {
+    "Isolation Forest": {
+      "accuracy": 0.7971078779276083,
+      "balanced_accuracy": 0.8184431496252771,
+      "precision": 0.9696349368816104,
+      "recall": 0.6643808930102081,
+      "f1": 0.7884953296957367,
+      "f2": 0.709022869022869,
+      "mcc": 0.6465800537355368,
+      "roc_auc": 0.9489456145216568,
+      "pr_auc": 0.9597164551474865
+    },
+    "One-Class SVM": {
+      "accuracy": 0.8587650816181689,
+      "balanced_accuracy": 0.8641328566859413,
+      "precision": 0.9182488079757261,
+      "recall": 0.8253720875866906,
+      "f1": 0.8693368351936966,
+      "f2": 0.8424133488157539,
+      "mcc": 0.7214449584068205,
+      "roc_auc": 0.8832162052474144,
+      "pr_auc": 0.9040598884393904
+    }
+  },
+  "anomaly_detection_rate": {
+    "Supervised RF": {
+      "normal": 0.027,
+      "DoS": 0.827,
+      "Probe": 0.765,
+      "R2L": 0.051,
+      "U2R": 0.149
+    },
+    "Isolation Forest": {
+      "normal": 0.027,
+      "DoS": 0.785,
+      "Probe": 0.978,
+      "R2L": 0.096,
+      "U2R": 0.343
+    },
+    "One-Class SVM": {
+      "normal": 0.097,
+      "DoS": 0.927,
+      "Probe": 0.934,
+      "R2L": 0.473,
+      "U2R": 0.776
     }
   },
   "rf_R2L_recall": 0.04956672443674177,
