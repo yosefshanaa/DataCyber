@@ -534,7 +534,7 @@
       "f2": 0.6692523380177638,
       "mcc": 0.6119716235048929,
       "roc_auc": 0.9581091189871828,
-      "pr_auc": 0.9600714401351742,
+      "pr_auc": 0.9600714394366721,
       "n_model_features": 115
     },
     "+ Engineered (3 created)": {
@@ -680,5 +680,213 @@
       "false_alarms_FP": 206,
       "missed_attacks_FN": 6132
     }
-  ]
+  ],
+  "unsw_class_distribution_pct": {
+    "train_%": {
+      "normal": 31.94,
+      "Generic": 22.81,
+      "Exploits": 19.04,
+      "Fuzzers": 10.37,
+      "DoS": 6.99,
+      "Reconnaissance": 5.98,
+      "Analysis": 1.14,
+      "Backdoor": 1.0,
+      "Shellcode": 0.65,
+      "Worms": 0.07
+    },
+    "test_%": {
+      "normal": 44.94,
+      "Generic": 22.92,
+      "Exploits": 13.52,
+      "Fuzzers": 7.36,
+      "DoS": 4.97,
+      "Reconnaissance": 4.25,
+      "Analysis": 0.82,
+      "Backdoor": 0.71,
+      "Shellcode": 0.46,
+      "Worms": 0.05
+    }
+  },
+  "unsw_binary_protocolA": {
+    "Baseline (majority)": {
+      "accuracy": 0.6806296159000826,
+      "balanced_accuracy": 0.5,
+      "precision": 0.6806296159000826,
+      "recall": 1.0,
+      "f1": 0.8099697987715905,
+      "f2": 0.914205829407484,
+      "mcc": 0.0,
+      "roc_auc": 0.5,
+      "pr_auc": 0.6806296159000826
+    },
+    "Logistic Regression": {
+      "accuracy": 0.9381219880806411,
+      "balanced_accuracy": 0.9118448278699808,
+      "precision": 0.9287831482432913,
+      "recall": 0.9845825128828187,
+      "f1": 0.9558691938501587,
+      "f2": 0.9728926386209523,
+      "mcc": 0.8567327479793853,
+      "roc_auc": 0.9847056702357511,
+      "pr_auc": 0.9924709803588955
+    },
+    "Random Forest": {
+      "accuracy": 0.9596224585816533,
+      "balanced_accuracy": 0.9495811138775339,
+      "precision": 0.9638091303449701,
+      "recall": 0.9773765134693535,
+      "f1": 0.970545409160877,
+      "f2": 0.974632564901697,
+      "mcc": 0.9066021742453656,
+      "roc_auc": 0.9938332857023155,
+      "pr_auc": 0.9970132725718271
+    },
+    "Gradient Boosting": {
+      "accuracy": 0.9589380934728677,
+      "balanced_accuracy": 0.9487940275192569,
+      "precision": 0.9633133650072299,
+      "recall": 0.9768737693242281,
+      "f1": 0.9700461788076715,
+      "f2": 0.9741312321922444,
+      "mcc": 0.9050149763366759,
+      "roc_auc": 0.9938523630471083,
+      "pr_auc": 0.9970812837729566
+    }
+  },
+  "unsw_binary_protocolB": {
+    "Baseline (majority)": {
+      "accuracy": 0.5506000097167566,
+      "balanced_accuracy": 0.5,
+      "precision": 0.5506000097167566,
+      "recall": 1.0,
+      "f1": 0.710176713873919,
+      "f2": 0.8596677539255101,
+      "mcc": 0.0,
+      "roc_auc": 0.5,
+      "pr_auc": 0.5506000097167566
+    },
+    "Logistic Regression": {
+      "accuracy": 0.8157824418209202,
+      "balanced_accuracy": 0.7981750675496815,
+      "precision": 0.7601552393272962,
+      "recall": 0.9721609459101739,
+      "f1": 0.8531851665424415,
+      "f2": 0.9207991542103525,
+      "mcc": 0.6499386250820445,
+      "roc_auc": 0.9566839527474179,
+      "pr_auc": 0.9682509848367161
+    },
+    "Random Forest": {
+      "accuracy": 0.8712772676480591,
+      "balanced_accuracy": 0.858303855518803,
+      "precision": 0.8174606076115966,
+      "recall": 0.9864996029294979,
+      "f1": 0.8940602571023011,
+      "f2": 0.9473211486480762,
+      "mcc": 0.7549328000313242,
+      "roc_auc": 0.97931642166741,
+      "pr_auc": 0.9829415932751903
+    },
+    "Gradient Boosting": {
+      "accuracy": 0.8719817324976923,
+      "balanced_accuracy": 0.8594726247910313,
+      "precision": 0.8201442820862012,
+      "recall": 0.9830803847171976,
+      "f1": 0.8942510283936992,
+      "f2": 0.9455118684918487,
+      "mcc": 0.754944137021188,
+      "roc_auc": 0.9837550638413054,
+      "pr_auc": 0.9881659814965755
+    }
+  },
+  "unsw_rf_accuracy_gap_pp": 8.834519093359416,
+  "unsw_per_class_recall": {
+    "Random Forest": {
+      "normal": 0.757,
+      "Generic": 0.968,
+      "Exploits": 0.786,
+      "Fuzzers": 0.601,
+      "DoS": 0.095,
+      "Reconnaissance": 0.798,
+      "Analysis": 0.0,
+      "Backdoor": 0.098,
+      "Shellcode": 0.656,
+      "Worms": 0.091
+    },
+    "Gradient Boosting": {
+      "normal": 0.755,
+      "Generic": 0.969,
+      "Exploits": 0.885,
+      "Fuzzers": 0.556,
+      "DoS": 0.039,
+      "Reconnaissance": 0.804,
+      "Analysis": 0.08,
+      "Backdoor": 0.058,
+      "Shellcode": 0.659,
+      "Worms": 0.5
+    }
+  },
+  "unsw_anomaly_binary_metrics": {
+    "Isolation Forest": {
+      "accuracy": 0.7247364329786717,
+      "balanced_accuracy": 0.7293879319185064,
+      "precision": 0.788461049041814,
+      "recall": 0.6834245124856614,
+      "f1": 0.7321949778434269,
+      "f2": 0.7021317100366692,
+      "mcc": 0.4568937145757273,
+      "roc_auc": 0.7922305232745319,
+      "pr_auc": 0.8081240321152918
+    },
+    "One-Class SVM": {
+      "accuracy": 0.5403609775057086,
+      "balanced_accuracy": 0.5693681284743669,
+      "precision": 0.706365389914577,
+      "recall": 0.2827362569487338,
+      "f1": 0.403831308978055,
+      "f2": 0.3212715505356615,
+      "mcc": 0.1664911871746693,
+      "roc_auc": 0.5949722396445682,
+      "pr_auc": 0.6478287764746664
+    }
+  },
+  "unsw_supervised_rf_binary_mcc": 0.7549328000313242,
+  "unsw_anomaly_detection_rate": {
+    "Supervised RF": {
+      "normal": 0.274,
+      "Generic": 1.0,
+      "Exploits": 0.996,
+      "Fuzzers": 0.913,
+      "DoS": 0.999,
+      "Reconnaissance": 0.999,
+      "Analysis": 1.0,
+      "Backdoor": 1.0,
+      "Shellcode": 0.995,
+      "Worms": 1.0
+    },
+    "Isolation Forest": {
+      "normal": 0.225,
+      "Generic": 0.977,
+      "Exploits": 0.42,
+      "Fuzzers": 0.418,
+      "DoS": 0.751,
+      "Reconnaissance": 0.28,
+      "Analysis": 0.9,
+      "Backdoor": 0.902,
+      "Shellcode": 0.36,
+      "Worms": 0.295
+    },
+    "One-Class SVM": {
+      "normal": 0.144,
+      "Generic": 0.542,
+      "Exploits": 0.118,
+      "Fuzzers": 0.12,
+      "DoS": 0.103,
+      "Reconnaissance": 0.021,
+      "Analysis": 0.013,
+      "Backdoor": 0.046,
+      "Shellcode": 0.024,
+      "Worms": 0.205
+    }
+  }
 }

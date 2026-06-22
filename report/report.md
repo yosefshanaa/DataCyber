@@ -21,9 +21,12 @@ on imbalanced data**, and confirm the gap is **21.9 ± 0.0 pp across five random
 split). Crucially, we **test the implied fix** rather than merely asserting it: a one-class anomaly
 detector trained on *normal traffic only* — a paradigm the tutorials never try — recovers the rare
 attacks (R2L 0.05→0.47, U2R 0.15→0.78) and **outperforms every supervised model on the official test
-set** (MCC 0.72 vs 0.66; F2 0.84 vs 0.72), at the cost of a higher false-alarm rate. **Verdict: the
-~99% claim is computed correctly but is not a valid measure of intrusion-detection capability — and a
-better paradigm exists for the attacks that matter.**
+set** (MCC 0.72 vs 0.66; F2 0.84 vs 0.72), at the cost of a higher false-alarm rate. Finally we
+**replicate the study on the modern UNSW-NB15 (2015) benchmark**: the protocol gap and the per-class
+blind spot reproduce, while the anomaly-detection remedy is shown to be *conditional* — it helps only
+when attacks resemble normal traffic. **Verdict: the ~99% claim is computed correctly but is not a
+valid measure of intrusion-detection capability — and the right paradigm depends, in a way we make
+precise, on whether the dangerous attacks look like normal traffic.**
 
 ---
 
@@ -402,7 +405,79 @@ content-based intrusions.
 
 ---
 
-## 7. Conclusions
+## 7. External Validation on a Modern Dataset (UNSW-NB15)
+
+A reasonable objection to everything above is that **NSL-KDD is old** (derived from 1998–99 traffic)
+and that its `KDDTest+` distribution shift is *hand-built* by the dataset authors. Would the critique
+survive on modern data with a naturally-drawn test split? To find out we **replicated the entire
+pipeline** on **UNSW-NB15** (Moustafa & Slay, 2015) — a contemporary IDS benchmark created
+specifically to replace KDD'99 — using the authors' **official** train/test partitions (175,341 /
+82,332 flows, 42 features, nine attack families). Every preprocessing step, model and metric is
+**reused unchanged**; the new module `src/unsw.py` supplies only the schema, so this is a true
+apples-to-apples replication, not a fresh bespoke study.
+
+### 7.1 The A/B gap reproduces — but smaller, and that is the point
+
+| Random Forest | Protocol A (random split) | Protocol B (official test) |
+|---|---|---|
+| Accuracy | 0.960 | **0.871** (−8.8 pp) |
+| MCC | 0.907 | 0.755 |
+| Recall (attack) | — | 0.987 |
+| PR-AUC | — | 0.983 |
+| Majority-baseline accuracy | 0.681 | 0.551 |
+
+The optimism gap reproduces (≈9 pp) but is **markedly smaller than NSL-KDD's ≈22 pp**. This is not a
+counter-example — it confirms the mechanism. UNSW-NB15's official split is a **near-IID random
+partition** (attack prevalence 68% train vs 55% test), so there is far less train→test shift to
+expose, whereas `KDDTest+` was *engineered* to over-represent novel attacks. The lesson generalises
+precisely: **the size of the accuracy inflation is governed by how much the test distribution differs
+from training**, and any headline reported on an in-distribution split is optimistic.
+
+### 7.2 Aggregate accuracy still hides per-class failure
+
+87% binary accuracy again looks healthy — and again conceals the per-family picture:
+
+| Family | Generic | Reconn. | Exploits | Shellcode | Fuzzers | DoS | Backdoor | Worms | Analysis |
+|---|---|---|---|---|---|---|---|---|---|
+| RF recall | 0.97 | 0.80 | 0.79 | 0.66 | 0.60 | **0.10** | **0.10** | **0.09** | **0.00** |
+
+`Analysis`, `Worms`, `Backdoor` and `DoS` are almost unrecoverable **as their own class** (`DoS` is
+systematically absorbed into the much larger, statistically similar `Exploits` family; see the
+confusion matrix below). The metric lesson from NSL-KDD transfers fully: on a modern dataset,
+aggregate accuracy still masks systematic blindness to specific attack types, and only per-class
+recall reveals it.
+
+![Random Forest confusion matrix on UNSW-NB15 (row-normalised)](figures/confusion_rf_unsw.png)
+
+### 7.3 The anomaly-detection recommendation is conditional — a sharper conclusion
+
+On NSL-KDD a one-class detector trained on normal-only traffic *beat* the supervised models on the
+rarest attacks (§5). Is "use anomaly detection" therefore a universal prescription? Running the
+identical experiment on UNSW-NB15 gives a **decisively different answer**:
+
+| Binary detector (UNSW test) | Recall | F2 | MCC |
+|---|---|---|---|
+| **Supervised Random Forest** | **0.987** | **0.947** | **0.755** |
+| Isolation Forest (normal-only) | 0.683 | 0.702 | 0.457 |
+| One-Class SVM (normal-only) | 0.283 | 0.321 | 0.167 |
+
+Here the **supervised model wins comfortably**: it flags ~99–100% of *every* attack family at the
+binary level, while the one-class detectors trail badly. The reason is the crux of the whole project.
+UNSW-NB15 attacks are **statistically separable from normal traffic** at the flow level, so a model
+that has *seen* attacks dominates; NSL-KDD's R2L/U2R attacks **mimic** normal traffic, which is exactly
+why a normal-only detector helped *there*.
+
+**So the recommendation is not "always use anomaly detection" but a conditional rule: anomaly detection
+is the right paradigm specifically when attacks resemble normal traffic, and the wrong default when
+they are separable.** This nuanced, evidence-based conclusion is *stronger* than the original
+recommendation and only emerges from testing on a second, modern dataset — the kind of cross-dataset
+validation the original tutorials never attempt.
+
+![UNSW-NB15 per-class detection: supervised vs one-class detectors](figures/anomaly_detection_unsw.png)
+
+---
+
+## 8. Conclusions
 
 **Key findings.**
 1. The headline "~99% accuracy" **reproduces** under the tutorials' protocol (random split of
@@ -423,6 +498,13 @@ content-based intrusions.
    vs 0.72) and recovers the rare attacks (R2L 0.05 → 0.47, U2R 0.15 → 0.78) — because it is immune
    to the train→test attack shift. The cost is more false alarms; the *paradigm*, not a larger
    supervised model, is the lever that matters.
+7. **The critique holds on modern data, and gets sharper (§7).** Replicating the full pipeline on
+   **UNSW-NB15** (2015) reproduces the A→B accuracy gap (~9 pp, smaller because its official split is
+   near-IID — which *confirms* that distribution-shift magnitude drives the gap), again shows aggregate
+   accuracy hiding near-zero recall on rare families (Analysis/Backdoor/Worms/DoS), and reveals that
+   anomaly detection is **conditional**: it wins only when attacks mimic normal traffic (NSL-KDD
+   R2L/U2R) and *loses* to supervised models when attacks are flow-separable (UNSW, supervised MCC 0.76
+   vs one-class 0.46/0.17).
 
 **Lessons learned.** In cybersecurity ML, the **evaluation protocol and metric choice decide the
 conclusion**. Reproducibility (getting the same number) is necessary but not sufficient — **validity**
@@ -448,7 +530,7 @@ traffic.
 
 ---
 
-## 8. Executive Summary
+## 9. Executive Summary
 
 We critically reproduced the most common NSL-KDD intrusion-detection tutorial, which advertises
 **~99% accuracy**. By holding models, features, preprocessing and seeds fixed and changing **only**
@@ -478,11 +560,15 @@ unchanged: evaluate on the distribution-matched test set, report MCC/PR-AUC/per-
 treat R2L/U2R as an **anomaly-detection** problem — which we did not merely recommend but **tested**: a
 one-class SVM trained on normal-only traffic beats the supervised models on the official test set
 (MCC 0.72 vs 0.66) and recovers the rare attacks (R2L 0.47, U2R 0.78), at a higher false-alarm rate.
-The repository contains a fully reproducible notebook, this PDF report, and all figures and metrics.
+Finally, we **validated externally on the modern UNSW-NB15 (2015) dataset** (§7): the accuracy gap and
+the per-class blind spot reproduce, and — importantly — the anomaly-detection remedy proves
+*conditional* (it helps when attacks resemble normal traffic, but supervised models win when attacks
+are separable). The repository contains a fully reproducible notebook, a test suite, this PDF report,
+and all figures and metrics.
 
 ---
 
-## 9. Summing It Up
+## 10. Summing It Up
 
 - **Problem.** Detect network intrusions on NSL-KDD (binary and by attack family).
 - **Selected source.** Popular NSL-KDD ML tutorials/repositories reporting ~99% accuracy via a random
@@ -499,6 +585,11 @@ The repository contains a fully reproducible notebook, this PDF report, and all 
   rare, dangerous attacks (R2L/U2R recall ≈ 0.05). **A one-class anomaly detector trained on normal
   traffic only reverses this** — beating the supervised models on the official test set (MCC 0.72 vs
   0.66) and detecting 47%/78% of R2L/U2R — at a higher false-alarm rate.
+- **External validation on a modern dataset (UNSW-NB15, 2015).** The whole pipeline replicates on
+  modern traffic: the A→B accuracy gap reproduces (~9 pp, smaller because UNSW's official split is
+  near-IID), aggregate accuracy again hides near-zero recall on rare families, and the
+  anomaly-detection remedy is shown to be **conditional** — it helps when attacks mimic normal traffic
+  but *loses* to supervised models when attacks are flow-separable.
 - **Were the author's claims supported by our results?** **No.** The number is arithmetically correct
   but the *protocol* and *metric choice* make the claim misleading.
 - **Most important insight.** In cybersecurity, **the evaluation protocol and the choice of metric
