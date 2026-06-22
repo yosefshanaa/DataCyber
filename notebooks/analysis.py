@@ -54,7 +54,7 @@ if not (ROOT / "src").exists() and (ROOT.parent / "src").exists():
     ROOT = ROOT.parent
 sys.path.insert(0, str(ROOT))
 
-from src import data, eda, evaluate, features, models  # noqa: E402
+from src import data, eda, evaluate, features, models, unsw  # noqa: E402
 
 # Silence library deprecation noise but keep ConvergenceWarning visible — we want
 # to know if Logistic Regression fails to converge rather than hide it.
@@ -698,6 +698,144 @@ RESULTS["threshold_sweep"] = sweep.round(4).to_dict("records")
 display(sweep)
 print("Lowering the threshold trades more false alarms (FP) for fewer missed attacks (FN).")
 
+# %% [markdown]
+# ## 7. External validation on a modern dataset (UNSW-NB15)
+#
+# A fair objection to everything above is that **NSL-KDD is old (2009)** and that its KDDTest+ shift is
+# hand-built. Does the critique survive on modern traffic? We repeat the core experiment on
+# **UNSW-NB15** (Moustafa & Slay, 2015) — a contemporary IDS benchmark created specifically to replace
+# KDD'99 — using the authors' **official** train/test partitions (175,341 / 82,332 flows, 42 features,
+# 10 attack families). Every preprocessing step, model and metric is **reused unchanged** from the
+# NSL-KDD pipeline; `src/unsw.py` only supplies the new schema. So this is a genuine apples-to-apples
+# replication, not a fresh bespoke analysis.
+
+# %%
+u_train, u_test = unsw.load_train_test(ROOT / "data" / "raw")
+print("UNSW-NB15 train:", u_train.shape, "| test:", u_test.shape)
+u_dist = pd.DataFrame({
+    "train_%": u_train["attack_category"].value_counts(normalize=True).mul(100).round(2),
+    "test_%": u_test["attack_category"].value_counts(normalize=True).mul(100).round(2),
+}).reindex(unsw.CLASS_ORDER)
+RESULTS["unsw_class_distribution_pct"] = json.loads(u_dist.to_json())
+print("\nClass prevalence (%), train vs official test:")
+display(u_dist)
+print(f"\nAttack prevalence: train {u_train['is_attack'].mean():.3f} vs test "
+      f"{u_test['is_attack'].mean():.3f} — the official split is close to IID (no deliberate "
+      "novel-attack shift like KDDTest+).")
+
+# %% [markdown]
+# ### 7.1 The A/B protocol experiment on modern data
+#
+# Same controlled comparison as §4–5: Protocol A (random 80/20 split of the training partition) vs
+# Protocol B (the official test partition), identical model zoo.
+
+# %%
+u_groups = unsw.feature_groups(u_train)
+u_Xtr, u_ytr = unsw.feature_matrix(u_train), u_train["is_attack"].to_numpy()
+u_Xte, u_yte = unsw.feature_matrix(u_test), u_test["is_attack"].to_numpy()
+u_Xa_tr, u_Xa_ev, u_ya_tr, u_ya_ev = train_test_split(
+    u_Xtr, u_ytr, test_size=0.20, random_state=RANDOM_STATE, stratify=u_ytr)
+u_protoA, _ = fit_eval_binary(models.make_models(features.build_preprocessor(u_groups)),
+                              u_Xa_tr, u_ya_tr, u_Xa_ev, u_ya_ev)
+u_protoB, u_scoresB = fit_eval_binary(models.make_models(features.build_preprocessor(u_groups)),
+                                      u_Xtr, u_ytr, u_Xte, u_yte)
+RESULTS["unsw_binary_protocolA"] = u_protoA
+RESULTS["unsw_binary_protocolB"] = u_protoB
+u_gap = (u_protoA["Random Forest"]["accuracy"] - u_protoB["Random Forest"]["accuracy"]) * 100
+RESULTS["unsw_rf_accuracy_gap_pp"] = float(u_gap)
+print("PROTOCOL A — random split of the UNSW training partition:"); display(evaluate.metrics_table(u_protoA))
+print("\nPROTOCOL B — official UNSW test partition:"); display(evaluate.metrics_table(u_protoB))
+print(f"\nRandom Forest A→B accuracy gap on UNSW-NB15: {u_gap:.1f} pp "
+      f"(vs {RESULTS['rf_accuracy_gap_A_minus_B']*100:.1f} pp on NSL-KDD).")
+
+# %% [markdown]
+# **Finding.** The collapse reproduces on modern data but is **milder**: ≈0.96 → ≈0.87 (~9 pp) versus
+# NSL-KDD's ~22 pp. The reason is illuminating — UNSW-NB15's official split is a near-IID random
+# partition, so there is far less train→test distribution shift to expose. This *confirms* rather than
+# weakens the thesis: the size of the optimism gap is governed by how much the test distribution
+# differs from training, and a headline number reported on an in-distribution split is still inflated.
+
+# %% [markdown]
+# ### 7.2 Does aggregate accuracy still hide per-class failure? (yes)
+#
+# 87% binary accuracy looks healthy. We check the 10-class per-family recall to see what it conceals.
+
+# %%
+u_ytr_mc, u_yte_mc = u_train["attack_category"].to_numpy(), u_test["attack_category"].to_numpy()
+u_mc = {k: v for k, v in models.make_models(features.build_preprocessor(u_groups)).items()
+        if k in ("Random Forest", "Gradient Boosting")}
+u_per_class, u_rf_pred = {}, None
+for name, mdl in u_mc.items():
+    mdl.fit(u_Xtr, u_ytr_mc)
+    pred = mdl.predict(u_Xte)
+    u_per_class[name] = evaluate.per_class_recall(u_yte_mc, pred, unsw.CLASS_ORDER)
+    if name == "Random Forest":
+        u_rf_pred = pred
+u_recall_tbl = pd.DataFrame(u_per_class).round(3)
+RESULTS["unsw_per_class_recall"] = json.loads(u_recall_tbl.to_json())
+print("Per-class RECALL on the official UNSW-NB15 test set (note the rare families):")
+display(u_recall_tbl)
+evaluate.plot_confusion(u_yte_mc, u_rf_pred, unsw.CLASS_ORDER,
+                        "Random Forest — UNSW-NB15 test (row-normalised)", "confusion_rf_unsw.png")
+
+# %% [markdown]
+# **Finding.** The NSL-KDD pattern re-emerges: behind 87% accuracy the rare / confusable families are
+# nearly invisible **as their own class** — `Analysis` ≈ 0.00, `Worms` ≈ 0.09, `Backdoor` ≈ 0.10, and
+# `DoS` ≈ 0.10 recall (`DoS` is absorbed into the much larger `Exploits` family). The metric lesson is
+# fully transferable: aggregate accuracy on a modern dataset still masks systematic blindness to
+# specific attack types — the per-class view is mandatory.
+
+# %% [markdown]
+# ### 7.3 Re-testing the anomaly-detection recommendation — and finding its limit
+#
+# On NSL-KDD a one-class detector trained on normal-only traffic *beat* the supervised models on the
+# rarest attacks (§5.6). Is "use anomaly detection" therefore a universal fix? We run the identical
+# experiment on UNSW-NB15 to find out.
+
+# %%
+u_prep = features.build_preprocessor(unsw.feature_groups(u_train))
+u_prep.fit(u_Xtr)
+u_Xtr_all, u_Xte_all = u_prep.transform(u_Xtr), u_prep.transform(u_Xte)
+u_norm = u_Xtr_all[(u_train["is_attack"] == 0).to_numpy()]
+u_rng = np.random.RandomState(RANDOM_STATE)
+u_idx = u_rng.choice(u_norm.shape[0], size=min(8000, u_norm.shape[0]), replace=False)
+u_detectors = models.make_anomaly_detectors(svm_nu=0.1)
+u_anom, u_adetect = {}, {}
+u_rf_bin = (u_scoresB["Random Forest"] >= 0.5).astype(int)
+u_adetect["Supervised RF"] = evaluate.per_class_detection_rate(u_yte_mc, u_rf_bin, unsw.CLASS_ORDER)
+for name, det in u_detectors.items():
+    det.fit(u_norm if name == "Isolation Forest" else u_norm[u_idx])
+    pred = det.predict(u_Xte_all)              # -1 = anomaly, +1 = inlier
+    y_attack = (pred == -1).astype(int)
+    score = -det.decision_function(u_Xte_all)  # higher = more anomalous
+    u_anom[name] = evaluate.binary_metrics(u_yte, y_attack, score)
+    u_adetect[name] = evaluate.per_class_detection_rate(u_yte_mc, y_attack, unsw.CLASS_ORDER)
+RESULTS["unsw_anomaly_binary_metrics"] = u_anom
+RESULTS["unsw_supervised_rf_binary_mcc"] = float(u_protoB["Random Forest"]["mcc"])
+u_detect_tbl = pd.DataFrame(u_adetect).round(3)
+RESULTS["unsw_anomaly_detection_rate"] = json.loads(u_detect_tbl.to_json())
+u_sup_row = pd.DataFrame({"Supervised RF": u_protoB["Random Forest"]}).T[
+    ["recall", "precision", "f2", "mcc", "roc_auc"]]
+print("Binary metrics — supervised RF vs one-class detectors (UNSW-NB15 test):")
+display(pd.concat([u_sup_row,
+                   evaluate.metrics_table(u_anom)[["recall", "precision", "f2", "mcc", "roc_auc"]]]))
+print("\nPer-family detection rate ('normal' row = false-positive rate):")
+display(u_detect_tbl)
+evaluate.plot_detection_comparison(
+    u_detect_tbl, "UNSW-NB15 — per-class detection: supervised vs one-class",
+    "anomaly_detection_unsw.png")
+
+# %% [markdown]
+# **Finding (the recommendation, refined).** Here anomaly detection is **not** the winner: the
+# supervised RF flags ~99–100% of *every* attack family at the binary level (MCC ≈ 0.75), while the
+# one-class detectors trail badly (Isolation Forest MCC ≈ 0.46, One-Class SVM ≈ 0.17). The reason is
+# decisive for the project's thesis: UNSW-NB15 attacks are **statistically separable from normal
+# traffic** at the flow level, so a model that has *seen* attacks wins. On NSL-KDD the rare R2L/U2R
+# attacks **mimic** normal traffic — which is exactly why a normal-only detector helped there. So "use
+# anomaly detection" is **not** a blanket fix; it is the right tool **specifically when attacks resemble
+# normal traffic**, and the wrong default when they do not. This conditional, evidence-based conclusion
+# is stronger than the original recommendation, and it only surfaces by testing on a second dataset.
+
 # %%
 # Persist everything quantitative for the report.
 with open(ROOT / "results" / "metrics.json", "w") as f:
@@ -705,7 +843,7 @@ with open(ROOT / "results" / "metrics.json", "w") as f:
 print("Wrote results/metrics.json with", len(RESULTS), "entries.")
 
 # %% [markdown]
-# ## 7. Executive Summary
+# ## 8. Executive Summary
 #
 # We critically reproduced the dominant NSL-KDD intrusion-detection tutorial pattern, which claims
 # **~99% accuracy**. Holding models, features and preprocessing fixed and changing **only** the
@@ -718,23 +856,34 @@ print("Wrote results/metrics.json with", len(RESULTS), "entries.")
 # constant feature (`num_outbound_cmds`), redundant correlated features, and a leakage trap (the
 # `difficulty` column). **Verdict: the ~99% claim is not supported** as a measure of real intrusion
 # detection capability.
+#
+# **External validation (§7).** Replicating the pipeline on the modern **UNSW-NB15** (2015) dataset
+# corroborates and sharpens the findings: the A→B accuracy gap reproduces (~9 pp) but is smaller
+# because UNSW's official split is near-IID — pinning the gap on distribution-shift magnitude; aggregate
+# accuracy again hides near-zero recall on rare families (Analysis/Backdoor/Worms/DoS); and the
+# anomaly-detection remedy is shown to be **conditional** — it wins only when attacks mimic normal
+# traffic (NSL-KDD R2L/U2R), and *loses* to supervised models when attacks are flow-separable (UNSW).
 
 # %% [markdown]
-# ## 8. Summing It Up
+# ## 9. Summing It Up
 #
 # * **Problem:** detect network intrusions (NSL-KDD), binary and by attack family.
 # * **Source:** popular NSL-KDD ML tutorial(s) reporting ~99% accuracy via a random split of KDDTrain+.
-# * **Dataset:** NSL-KDD — KDDTrain+ (125,973) / KDDTest+ (22,544), 41 features, 4 attack families.
+# * **Dataset:** NSL-KDD — KDDTrain+ (125,973) / KDDTest+ (22,544), 41 features, 4 attack families;
+#   externally validated on **UNSW-NB15** (2015) — 175,341 / 82,332 flows, 42 features, 9 attack families.
 # * **Methodology:** faithful reproduction + a controlled A/B protocol experiment, robust EDA,
-#   leakage-safe feature engineering, four models, imbalance-aware metrics, error analysis.
+#   leakage-safe feature engineering, four models, imbalance-aware metrics, error analysis, and a
+#   cross-dataset replication on a modern benchmark.
 # * **Main finding:** the headline accuracy **does not survive** correct evaluation
-#   (~0.99 → ~0.77), and the models fail precisely on the rare, dangerous attacks.
+#   (~0.99 → ~0.77), and the models fail precisely on the rare, dangerous attacks — a pattern that
+#   reproduces on modern UNSW-NB15 data.
 # * **Were the author's claims supported?** **No** — the metric is right but the *protocol* and the
 #   *metric choice* make the claim misleading.
 # * **Key insight:** in cyber, *evaluation protocol and metric choice decide the conclusion*; a
 #   model that looks 99% accurate can be operationally blind to the attacks you care about.
 # * **Recommendation:** do **not** adopt this approach as-is on similar problems. Use the
-#   distribution-matched test set, report MCC/PR-AUC/per-class recall, and treat R2L/U2R as a
-#   rare-class problem (resampling, cost-sensitive learning, anomaly detection).
-# * **Final conclusion:** a rigorous, reproducible refutation of an over-optimistic but extremely
-#   common cybersecurity ML claim.
+#   distribution-matched test set, report MCC/PR-AUC/per-class recall, and treat rare attacks as a
+#   rare-class problem (resampling, cost-sensitive learning, or anomaly detection **when the attacks
+#   resemble normal traffic** — a remedy our UNSW-NB15 test shows is conditional, not universal).
+# * **Final conclusion:** a rigorous, reproducible, cross-dataset refutation of an over-optimistic but
+#   extremely common cybersecurity ML claim.

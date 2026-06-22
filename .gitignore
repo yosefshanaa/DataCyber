@@ -4,8 +4,8 @@ __pycache__/
 .venv/
 .ipynb_checkpoints/
 
-# Notebook execution artifacts kept; large raw data is fetchable via data/get_data.py
-# (NSL-KDD is small ~6MB so we DO commit it for one-clone reproducibility)
+# Raw data is fetchable via data/get_data.py. NSL-KDD (~6MB) is committed for
+# one-clone reproducibility; UNSW-NB15 (~47MB) is also fetched by get_data.py.
 
 # Report build intermediate (PDF is the deliverable)
 report/report.html
