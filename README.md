@@ -1,7 +1,7 @@
 # DataCyber — Critical Reproduction Study: ML Intrusion Detection on NSL-KDD
 
 **Course:** Data Science in Cyber — Dr. Uri Itai · **Topic:** Intrusion Detection Systems (IDS)
-**Author:** Yosef Shanaa · **Repository:** <https://github.com/yosefshanaa/DataCyber>
+**Author:** Yosef Shanaa · **ID:** 213314859 · **Repository:** <https://github.com/yosefshanaa/DataCyber>
 **Reproducibility:** Python 3.14 · all seeds fixed (`RANDOM_STATE = 42`) · **41/41 automated tests passing**
 
 > **Where to start (for review):** the written deliverable is **[`report/report.pdf`](report/report.pdf)**.
